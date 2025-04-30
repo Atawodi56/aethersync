@@ -4,6 +4,10 @@ authors = []
 description = ""
 telemetry = false
 requirements = []
+[contracts.aether-sync-access]
+path = "contracts/aether-sync-access.clar"
+depends_on = []
+
 [contracts.aether-sync-core]
 path = "contracts/aether-sync-core.clar"
 depends_on = []
