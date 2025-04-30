@@ -12,6 +12,10 @@ depends_on = []
 path = "contracts/aether-sync-core.clar"
 depends_on = []
 
+[contracts.aether-sync-integrity]
+path = "contracts/aether-sync-integrity.clar"
+depends_on = []
+
 [repl]
 costs_version = 2
 parser_version = 2
