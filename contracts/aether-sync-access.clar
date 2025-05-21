@@ -78,20 +78,6 @@
   )
 )
 
-;; Adds a device ID to a user's device list
-(define-private (add-device-to-list (user principal) (device-id (string-utf8 36)))
-  (let (
-    (current-list (default-to { device-ids: (list) } (map-get? user-device-list { user: user })))
-    (current-devices (get device-ids current-list))
-    (new-devices (unwrap! (as-max-len? (append current-devices device-id) u20) ERR-ALREADY-AUTHORIZED))
-  )
-    (map-set user-device-list 
-      { user: user }
-      { device-ids: new-devices }
-    )
-  )
-)
-
 ;; =====================================
 ;; Read-only Functions
 ;; =====================================
@@ -109,27 +95,6 @@
     (if (is-some owner-data)
       (is-eq user (get owner (unwrap-panic owner-data)))
       false
-    )
-  )
-)
-
-;; Gets a user's role for a specific dataset
-(define-read-only (get-user-role (user principal) (dataset-id (string-utf8 36)))
-  (let (
-    (permission-data (map-get? dataset-permissions { dataset-id: dataset-id, user: user }))
-  )
-    (if (is-some permission-data)
-      (let (
-        (role-value (get role (unwrap-panic permission-data)))
-      )
-        (cond
-          ((is-eq role-value ROLE-OWNER) (ok "owner"))
-          ((is-eq role-value ROLE-EDITOR) (ok "editor"))
-          ((is-eq role-value ROLE-VIEWER) (ok "viewer"))
-          (true (err "unknown-role"))
-        )
-      )
-      (err "no-permission")
     )
   )
 )
@@ -159,25 +124,6 @@
   (match (map-get? user-device-list { user: user })
     device-list (ok (get device-ids device-list))
     (ok (list))
-  )
-)
-
-;; Checks if a user can access a dataset (with a specific role or higher)
-(define-read-only (can-access (user principal) (dataset-id (string-utf8 36)) (required-role (string-utf8 10)))
-  (let (
-    (role-value 
-      (cond
-        ((is-eq required-role "owner") ROLE-OWNER)
-        ((is-eq required-role "editor") ROLE-EDITOR)
-        ((is-eq required-role "viewer") ROLE-VIEWER)
-        (true u0)
-      )
-    )
-  )
-    (if (is-eq role-value u0)
-      (err "invalid-role")
-      (ok (has-permission user dataset-id role-value))
-    )
   )
 )
 
@@ -211,47 +157,6 @@
   )
 )
 
-;; Grant access permission to a user for a dataset
-(define-public (grant-access (dataset-id (string-utf8 36)) (user principal) (role-name (string-utf8 10)))
-  (let (
-    (role-value 
-      (cond
-        ((is-eq role-name "owner") ROLE-OWNER)
-        ((is-eq role-name "editor") ROLE-EDITOR)
-        ((is-eq role-name "viewer") ROLE-VIEWER)
-        (true u0)
-      )
-    )
-  )
-    ;; Check if caller is dataset owner
-    (if (not (is-dataset-owner tx-sender dataset-id))
-      ERR-NOT-DATASET-OWNER
-      
-      ;; Check if role is valid
-      (if (is-eq role-value u0)
-        ERR-INVALID-ROLE
-      
-        ;; Don't allow changing owner permissions this way
-        (if (and 
-          (is-eq role-value ROLE-OWNER) 
-          (not (is-eq user tx-sender))
-        )
-          ERR-CANNOT-MODIFY-OWNER
-          
-          ;; Grant permission
-          (begin
-            (map-set dataset-permissions
-              { dataset-id: dataset-id, user: user }
-              { role: role-value }
-            )
-            (ok true)
-          )
-        )
-      )
-    )
-  )
-)
-
 ;; Revoke a user's access to a dataset
 (define-public (revoke-access (dataset-id (string-utf8 36)) (user principal))
   ;; Check if caller is dataset owner
@@ -267,29 +172,6 @@
         (map-delete dataset-permissions
           { dataset-id: dataset-id, user: user }
         )
-        (ok true)
-      )
-    )
-  )
-)
-
-;; Register a new device for the user
-(define-public (register-device (device-id (string-utf8 36)) (device-name (string-utf8 64)))
-  (let (
-    (device-data (map-get? user-devices { user: tx-sender, device-id: device-id }))
-  )
-    (if (is-some device-data)
-      ERR-DEVICE-ALREADY-REGISTERED
-      (begin
-        ;; Add the new device
-        (map-set user-devices
-          { user: tx-sender, device-id: device-id }
-          { authorized: true, name: device-name, last-sync: (unwrap-panic (get-block-info? time (- block-height u1))) }
-        )
-        
-        ;; Add to the list of devices
-        (add-device-to-list tx-sender device-id)
-        
         (ok true)
       )
     )

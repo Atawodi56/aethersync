@@ -103,38 +103,6 @@
   )
 )
 
-;; Creates a new conflict entry
-(define-private (create-conflict 
-                  (owner principal) 
-                  (data-id (string-utf8 36)) 
-                  (existing-hash (buff 32)) 
-                  (existing-device (string-utf8 36))
-                  (existing-timestamp uint)
-                  (new-hash (buff 32))
-                  (new-device (string-utf8 36)))
-  (let ((current-time (unwrap-panic (get-block-info? time u0)))
-        (conflict-entry (list 
-                         {
-                           hash: existing-hash,
-                           device-id: existing-device,
-                           timestamp: existing-timestamp
-                         }
-                         {
-                           hash: new-hash,
-                           device-id: new-device,
-                           timestamp: current-time
-                         })))
-    (map-set data-conflicts
-             { owner: owner, data-id: data-id }
-             {
-               conflicting-hashes: conflict-entry,
-               is-resolved: false
-             })
-    (add-to-integrity-history owner data-id new-hash new-device "conflict")
-    ERR-CONFLICT-EXISTS
-  )
-)
-
 ;; Verify a cryptographic proof against the stored hash
 (define-private (verify-data-integrity 
                   (owner principal) 
@@ -180,40 +148,6 @@
   )
 )
 
-;; Submit a new or updated data hash
-(define-public (submit-data-hash 
-                 (data-id (string-utf8 36)) 
-                 (hash (buff 32)) 
-                 (device-id (string-utf8 36)))
-  (begin
-    (asserts! (is-eq tx-sender contract-caller) ERR-NOT-AUTHORIZED)
-    (asserts! (is-device-registered tx-sender device-id) ERR-INVALID-DEVICE)
-    
-    (let ((current-time (unwrap-panic (get-block-info? time u0))))
-      (match (map-get? data-hashes { owner: tx-sender, data-id: data-id })
-        existing-data (if (is-eq (get hash existing-data) hash)
-                          (ok true) ;; Hash already matches, nothing to do
-                          (if (has-conflict tx-sender data-id)
-                              ERR-CONFLICT-EXISTS
-                              (create-conflict 
-                               tx-sender
-                               data-id
-                               (get hash existing-data)
-                               (get device-id existing-data)
-                               (get timestamp existing-data)
-                               hash
-                               device-id)))
-        ;; New data, just set it
-        (begin
-          (map-set data-hashes
-                   { owner: tx-sender, data-id: data-id }
-                   { hash: hash, timestamp: current-time, device-id: device-id })
-          (add-to-integrity-history tx-sender data-id hash device-id "create")
-          (ok true))
-      ))
-  )
-)
-
 ;; Verify data matches the stored hash
 (define-public (verify-data 
                  (data-id (string-utf8 36)) 
@@ -237,52 +171,6 @@
   )
 )
 
-;; Resolve a data conflict by selecting the correct version
-(define-public (resolve-conflict 
-                 (data-id (string-utf8 36)) 
-                 (selected-hash (buff 32)))
-  (begin
-    (asserts! (is-eq tx-sender contract-caller) ERR-NOT-AUTHORIZED)
-    
-    (match (map-get? data-conflicts { owner: tx-sender, data-id: data-id })
-      conflict (begin
-                 (asserts! (not (get is-resolved conflict)) ERR-NO-CONFLICT)
-                 
-                 ;; Verify the selected hash is one of the conflicting ones
-                 (asserts! 
-                  (any 
-                   (get conflicting-hashes conflict) 
-                   (lambda (entry) (is-eq (get hash entry) selected-hash)))
-                  ERR-INVALID-RESOLUTION)
-                 
-                 ;; Update the canonical hash and mark conflict as resolved
-                 (let ((current-time (unwrap-panic (get-block-info? time u0)))
-                       (selected-device 
-                        (get device-id 
-                             (unwrap-panic
-                              (find 
-                               (get conflicting-hashes conflict)
-                               (lambda (entry) (is-eq (get hash entry) selected-hash)))))))
-                   
-                   (map-set data-hashes
-                            { owner: tx-sender, data-id: data-id }
-                            { 
-                              hash: selected-hash, 
-                              timestamp: current-time, 
-                              device-id: selected-device 
-                            })
-                   
-                   (map-set data-conflicts
-                            { owner: tx-sender, data-id: data-id }
-                            (merge conflict { is-resolved: true }))
-                   
-                   (add-to-integrity-history tx-sender data-id selected-hash selected-device "resolved")
-                   (ok true)))
-      ERR-NO-CONFLICT
-    )
-  )
-)
-
 ;; Read-only functions
 
 ;; Get the current hash for a data ID
@@ -290,16 +178,6 @@
   (match (map-get? data-hashes { owner: owner, data-id: data-id })
     hash-data (ok hash-data)
     ERR-DATA-NOT-FOUND
-  )
-)
-
-;; Check if there's an active conflict for a data ID
-(define-read-only (check-conflict (owner principal) (data-id (string-utf8 36)))
-  (match (map-get? data-conflicts { owner: owner, data-id: data-id })
-    conflict (if (get is-resolved conflict)
-                (ok { has-conflict: false, details: conflict })
-                (ok { has-conflict: true, details: conflict }))
-    (ok { has-conflict: false, details: none })
   )
 )
 

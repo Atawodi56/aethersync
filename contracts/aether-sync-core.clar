@@ -75,20 +75,6 @@
   )
 )
 
-;; Helper function to remove a ref-id from a user's list of references
-;; @param user (principal) - The user to update
-;; @param ref-id (string-utf8) - The reference ID to remove
-;; @returns (bool) - Success status
-(define-private (remove-from-user-references (user principal) (ref-id (string-utf8 128)))
-  (let (
-    (current-refs (default-to { ref-ids: (list) } (map-get? user-references { user: user })))
-    (filtered-refs (filter (lambda (id) (not (is-eq id ref-id))) (get ref-ids current-refs)))
-  )
-    (map-set user-references { user: user } { ref-ids: filtered-refs })
-    true
-  )
-)
-
 ;; Read-only functions
 
 ;; Get a data reference by its ID
@@ -201,32 +187,6 @@
   )
 )
 
-;; Delete a data reference
-;; @param ref-id (string-utf8) - Identifier of reference to delete
-;; @returns (response) - Success or error
-(define-public (delete-reference (ref-id (string-utf8 128)))
-  (let (
-    (caller tx-sender)
-    (reference (map-get? data-references { ref-id: ref-id }))
-  )
-    ;; Check if reference exists
-    (asserts! (is-some reference) ERR-REFERENCE-NOT-FOUND)
-    
-    ;; Only the owner can delete
-    (asserts! (is-eq (get owner (unwrap-panic reference)) caller) ERR-NOT-AUTHORIZED)
-    
-    ;; Remove the reference
-    (map-delete data-references { ref-id: ref-id })
-    
-    ;; Update user's references list
-    (asserts! (remove-from-user-references caller ref-id) ERR-INVALID-DATA)
-    
-    ;; Clean up any shared access records (we don't need to check success)
-    (map-delete shared-access { ref-id: ref-id, user: caller })
-    
-    (ok true)
-  )
-)
 
 ;; Share a reference with another user
 ;; @param ref-id (string-utf8) - Reference to share
